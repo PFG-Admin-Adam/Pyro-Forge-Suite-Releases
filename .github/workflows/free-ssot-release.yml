@@ -1,0 +1,227 @@
+name: Free SSOT Release Publisher
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Optional private SSOT tag; blank uses the newest version tag
+        required: false
+        type: string
+      force_rebuild:
+        description: Rebuild and replace an existing public release
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: free-ssot-release
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Find unpublished SSOT tag
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      should_build: ${{ steps.release.outputs.should_build }}
+
+    steps:
+      - name: Create read-only SSOT token
+        id: ssot-reader
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SSOT_READER_APP_ID }}
+          private-key: ${{ secrets.SSOT_READER_PRIVATE_KEY }}
+          owner: PFG-Admin-Adam
+          repositories: Pyro-Forge-Suite
+
+      - name: Select the newest unpublished release
+        id: release
+        shell: pwsh
+        env:
+          SSOT_TOKEN: ${{ steps.ssot-reader.outputs.token }}
+          PUBLIC_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild }}
+        run: |
+          $env:GH_TOKEN = $env:SSOT_TOKEN
+          $tags = @(
+            gh api "repos/PFG-Admin-Adam/Pyro-Forge-Suite/tags?per_page=100" `
+              --paginate `
+              --jq ".[].name"
+          )
+          if ($LASTEXITCODE -ne 0 -or $tags.Count -eq 0) {
+            throw "No private SSOT version tags were available."
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:REQUESTED_TAG)) {
+            $releaseTag = $env:REQUESTED_TAG.Trim()
+            if ($releaseTag -notin $tags) {
+              throw "Requested tag $releaseTag does not exist in the private SSOT."
+            }
+          } else {
+            $candidates = foreach ($tag in $tags) {
+              if ($tag -match "^v(.+)$") {
+                try {
+                  [pscustomobject]@{
+                    Tag = $tag
+                    Version = [semver]$Matches[1]
+                  }
+                } catch {
+                  Write-Output "Ignoring non-semantic tag $tag"
+                }
+              }
+            }
+            $releaseTag = (
+              $candidates |
+                Sort-Object Version -Descending |
+                Select-Object -First 1
+            ).Tag
+          }
+
+          if ([string]::IsNullOrWhiteSpace($releaseTag)) {
+            throw "No semantic SSOT release tag was found."
+          }
+
+          $env:GH_TOKEN = $env:PUBLIC_TOKEN
+          gh release view $releaseTag `
+            --repo PFG-Admin-Adam/Pyro-Forge-Suite-Releases 2>$null
+          $alreadyPublished = $LASTEXITCODE -eq 0
+          $force = $env:FORCE_REBUILD -eq "true"
+          $shouldBuild = -not $alreadyPublished -or $force
+
+          "release_tag=$releaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "should_build=$($shouldBuild.ToString().ToLowerInvariant())" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          if ($shouldBuild) {
+            Write-Output "$releaseTag will be validated, built, and published."
+          } else {
+            Write-Output "$releaseTag is already public; no build is needed."
+          }
+
+  build-and-publish:
+    name: Validate, build, and publish
+    needs: discover
+    if: ${{ needs.discover.outputs.should_build == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/public-release
+      PYROFORGE_ARTIFACT_DIR: ${{ github.workspace }}/dist/windows-release
+      PYROFORGE_RELEASE_TAG: ${{ needs.discover.outputs.release_tag }}
+
+    steps:
+      - name: Create read-only SSOT token
+        id: ssot-reader
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SSOT_READER_APP_ID }}
+          private-key: ${{ secrets.SSOT_READER_PRIVATE_KEY }}
+          owner: PFG-Admin-Adam
+          repositories: Pyro-Forge-Suite
+
+      - name: Check out the private SSOT tag
+        uses: actions/checkout@v4
+        with:
+          repository: PFG-Admin-Adam/Pyro-Forge-Suite
+          ref: ${{ needs.discover.outputs.release_tag }}
+          token: ${{ steps.ssot-reader.outputs.token }}
+          persist-credentials: false
+          path: ssot
+
+      - name: Configure Rust
+        shell: pwsh
+        run: |
+          rustup show
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install Tauri frontend tools
+        shell: pwsh
+        run: |
+          cargo install trunk --locked
+          cargo install tauri-cli --version "^2" --locked
+
+      - name: Install Windows packaging tools
+        shell: pwsh
+        run: |
+          $wixRoot = Get-ChildItem "${env:ProgramFiles(x86)}" -Directory -Filter "WiX Toolset v*" |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+          if (-not $wixRoot) {
+            choco install wixtoolset --no-progress -y
+            $wixRoot = Get-ChildItem "${env:ProgramFiles(x86)}" -Directory -Filter "WiX Toolset v*" |
+              Sort-Object Name -Descending |
+              Select-Object -First 1
+          }
+          if (-not $wixRoot) {
+            throw "WiX Toolset install folder not found."
+          }
+
+          $nsisRoot = @(
+            "${env:ProgramFiles(x86)}\NSIS",
+            "${env:ProgramFiles}\NSIS"
+          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $nsisRoot) {
+            choco install nsis --no-progress -y
+            $nsisRoot = @(
+              "${env:ProgramFiles(x86)}\NSIS",
+              "${env:ProgramFiles}\NSIS"
+            ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          }
+          if (-not $nsisRoot) {
+            throw "NSIS install folder not found."
+          }
+
+          $wixBin = Join-Path $wixRoot.FullName "bin"
+          $wixBin | Out-File -FilePath $env:GITHUB_PATH -Append
+          $nsisRoot | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Validate and build the tagged SSOT
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/ssot/tools/build-public-release.ps1" `
+            -ArtifactDirectory $env:PYROFORGE_ARTIFACT_DIR
+
+      - name: Publish the verified public release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseRepo = "PFG-Admin-Adam/Pyro-Forge-Suite-Releases"
+          $releaseTag = $env:PYROFORGE_RELEASE_TAG
+          $assets = @(
+            Get-ChildItem -LiteralPath $env:PYROFORGE_ARTIFACT_DIR -File |
+              Sort-Object Name |
+              ForEach-Object FullName
+          )
+          if ($assets.Count -ne 9) {
+            throw "Expected nine verified release files; found $($assets.Count)."
+          }
+
+          gh release view $releaseTag --repo $releaseRepo 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $releaseTag @assets --repo $releaseRepo --clobber
+            gh release edit $releaseTag --repo $releaseRepo `
+              --title "Pyro Forge Suite $releaseTag" `
+              --prerelease
+          } else {
+            $notes = @(
+              "Verified Pyro Forge Suite installers built free from the private source-of-truth tag $releaseTag."
+              ""
+              "- Desktop apps: User, Manager, and Knowledge Hub"
+              "- Integrity: SHA-256 values are recorded in pyroforge-release-manifest.json and checked again by every app."
+              "- Security: The free public builder has read-only access to the private SSOT and cannot modify it."
+            ) -join [Environment]::NewLine
+            gh release create $releaseTag @assets --repo $releaseRepo `
+              --target main `
+              --title "Pyro Forge Suite $releaseTag" `
+              --notes $notes `
+              --prerelease
+          }

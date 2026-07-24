@@ -105,6 +105,10 @@ jobs:
             Write-Output "$releaseTag is already public; no build is needed."
           }
 
+          # A missing public release is the expected first-build condition.
+          # Reset gh's nonzero "not found" exit code after recording the outputs.
+          exit 0
+
   build-and-publish:
     name: Validate, build, and publish
     needs: discover

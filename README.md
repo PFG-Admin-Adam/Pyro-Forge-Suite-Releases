@@ -6,7 +6,10 @@ This is the public, installer-only update feed for Pyro Forge Suite.
 `Pyro-Forge-Suite-Complete-Setup.exe`](https://github.com/PFG-Admin-Adam/Pyro-Forge-Suite-Releases/releases).**
 
 That one installer installs the User app, Manager app, and Knowledge Hub
-together. Standalone EXE and MSI installers remain available in the same
+together. The User app also contains the Pyro Forge Unreal source-control
+plugin, provisions it during installation, and installs/enables it for the
+Unreal project selected in Version Control. No separate plugin download is
+required. Standalone EXE and MSI installers remain available in the same
 release for individual and managed deployment.
 
 ## Source of truth

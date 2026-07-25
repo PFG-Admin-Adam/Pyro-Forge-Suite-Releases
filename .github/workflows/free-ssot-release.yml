@@ -233,6 +233,8 @@ jobs:
               ""
               "**[Download Pyro-Forge-Suite-Complete-Setup.exe](https://github.com/PFG-Admin-Adam/Pyro-Forge-Suite-Releases/releases/download/$releaseTag/Pyro-Forge-Suite-Complete-Setup.exe) to install the User app, Manager app, and Knowledge Hub together.**"
               ""
+              "The User app includes and automatically provisions the Pyro Forge Unreal source-control plugin; no separate plugin download is required."
+              ""
               "Standalone EXE and MSI installers remain available below for individual or managed deployment."
               ""
               "- Integrity: SHA-256 values are recorded in pyroforge-release-manifest.json and checked again by every app."

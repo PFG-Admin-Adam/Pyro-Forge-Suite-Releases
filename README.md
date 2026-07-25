@@ -2,8 +2,12 @@
 
 This is the public, installer-only update feed for Pyro Forge Suite.
 
-Download beta installers from
-[Releases](https://github.com/PFG-Admin-Adam/Pyro-Forge-Suite-Releases/releases).
+**[Open the newest beta release and download
+`Pyro-Forge-Suite-Complete-Setup.exe`](https://github.com/PFG-Admin-Adam/Pyro-Forge-Suite-Releases/releases).**
+
+That one installer installs the User app, Manager app, and Knowledge Hub
+together. Standalone EXE and MSI installers remain available in the same
+release for individual and managed deployment.
 
 ## Source of truth
 
@@ -14,10 +18,10 @@ hand.
 
 An hourly public-repository workflow checks the private SSOT through a
 read-only GitHub App. When it finds a new version tag, GitHub's free standard
-public runner validates and builds the complete suite, then publishes the
-verified installers and `pyroforge-release-manifest.json` here. Installed User,
-Manager, and Knowledge Hub apps read this repository without a GitHub
-credential.
+public runner validates and builds the complete suite, creates the unified
+installer from those three app packages, then publishes the verified installers
+and `pyroforge-release-manifest.json` here. Installed User, Manager, and
+Knowledge Hub apps read this repository without a GitHub credential.
 
 The public workflow receives a read-only private-source token. Publishing uses
 the separate, repository-local `GITHUB_TOKEN`, which can write only to this

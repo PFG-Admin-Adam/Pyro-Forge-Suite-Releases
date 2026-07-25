@@ -146,6 +146,11 @@ jobs:
           rustup show
           rustup target add wasm32-unknown-unknown
 
+      - name: Configure Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Install Tauri frontend tools
         shell: pwsh
         run: |
@@ -205,8 +210,8 @@ jobs:
               Sort-Object Name |
               ForEach-Object FullName
           )
-          if ($assets.Count -ne 9) {
-            throw "Expected nine verified release files; found $($assets.Count)."
+          if ($assets.Count -ne 10) {
+            throw "Expected ten verified release files; found $($assets.Count)."
           }
 
           gh release view $releaseTag --repo $releaseRepo 2>$null
@@ -219,7 +224,12 @@ jobs:
             $notes = @(
               "Verified Pyro Forge Suite installers built free from the private source-of-truth tag $releaseTag."
               ""
-              "- Desktop apps: User, Manager, and Knowledge Hub"
+              "## Recommended download"
+              ""
+              "**[Download Pyro-Forge-Suite-Complete-Setup.exe](https://github.com/PFG-Admin-Adam/Pyro-Forge-Suite-Releases/releases/download/$releaseTag/Pyro-Forge-Suite-Complete-Setup.exe) to install the User app, Manager app, and Knowledge Hub together.**"
+              ""
+              "Standalone EXE and MSI installers remain available below for individual or managed deployment."
+              ""
               "- Integrity: SHA-256 values are recorded in pyroforge-release-manifest.json and checked again by every app."
               "- Security: The free public builder has read-only access to the private SSOT and cannot modify it."
             ) -join [Environment]::NewLine
